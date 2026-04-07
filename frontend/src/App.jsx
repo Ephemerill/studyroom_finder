@@ -13,12 +13,12 @@ function App() {
     setStatusMessage('Initializing scraper...')
     setRooms([])
 
-    // Connect to SSE stream
-    const eventSource = new EventSource('http://127.0.0.1:5000/api/scrape')
+    // Connect to SSE stream via relative path so Nginx can proxy it
+    const eventSource = new EventSource('/api/scrape')
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data)
-      
+
       if (data.status === 'progress') {
         setProgress(data.progress)
         setStatusMessage(data.message)
@@ -56,8 +56,8 @@ function App() {
       {status === 'scraping' && (
         <div className="progress-container">
           <div className="progress-track">
-            <div 
-              className="progress-fill" 
+            <div
+              className="progress-fill"
               style={{ width: `${progress}%` }}
             ></div>
           </div>
@@ -80,7 +80,7 @@ function App() {
                     {room.location}
                   </div>
                 </div>
-                
+
                 <div className="room-content">
                   <div className="times-title">Available Times</div>
                   {room.available_times && room.available_times.length > 0 ? (
@@ -102,11 +102,11 @@ function App() {
               </div>
             ))}
           </div>
-          
+
           <div style={{ textAlign: 'center', marginTop: '3rem' }}>
-             <button className="primary-btn" onClick={() => setStatus('idle')} style={{ padding: '0.8rem 2rem', fontSize: '1rem' }}>
-                Search Again
-             </button>
+            <button className="primary-btn" onClick={() => setStatus('idle')} style={{ padding: '0.8rem 2rem', fontSize: '1rem' }}>
+              Search Again
+            </button>
           </div>
         </>
       )}

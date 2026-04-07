@@ -4,6 +4,7 @@ from flask_cors import CORS
 from scraper import stream_study_rooms
 
 app = Flask(__name__)
+# CORS is mostly handled by Nginx now, but good to keep if you test locally
 CORS(app)
 
 @app.route('/api/scrape', methods=['GET'])

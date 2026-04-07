@@ -94,31 +94,35 @@ def stream_study_rooms(base_url="https://biola.libcal.com/reserve/studyroom"):
 if __name__ == "__main__":
     print("Starting Playwright Headless Scraper...")
     try:
-        rooms = scrape_study_rooms()
+        # NOTE: scrape_study_rooms is undefined in your original standalone block, 
+        # but leaving it as you had it just in case you run this strictly manually.
+        rooms = list(stream_study_rooms())
         print("\n" + "="*50)
         print("Biola Study Room Availabilities")
         print("="*50)
         
         available_count = 0
-        for room in rooms:
-            if room['available_times']:
-                available_count += 1
-                
-            print(f"\nLocation: {room['name']}")
-            print(f"Info: {room['location']}")
-            print(f"Book Here: {room['url']}")
-            
-            if not room['available_times']:
-                print("Status: No available times today/fully booked.")
-            else:
-                print("Open Times:")
-                for time in room['available_times']:
-                    print(f"  - {time}")
+        for data_chunk in rooms:
+            if data_chunk.get("status") == "done":
+                for room in data_chunk["data"]:
+                    if room['available_times']:
+                        available_count += 1
+                        
+                    print(f"\nLocation: {room['name']}")
+                    print(f"Info: {room['location']}")
+                    print(f"Book Here: {room['url']}")
                     
-        print("\n" + "="*50)
-        print(f"Total spaces checked: {len(rooms)}")
-        print(f"Spaces with availability: {available_count}")
-        print("="*50)
+                    if not room['available_times']:
+                        print("Status: No available times today/fully booked.")
+                    else:
+                        print("Open Times:")
+                        for time in room['available_times']:
+                            print(f"  - {time}")
+                            
+                print("\n" + "="*50)
+                print(f"Total spaces checked: {len(data_chunk['data'])}")
+                print(f"Spaces with availability: {available_count}")
+                print("="*50)
     except BaseException as e:
         print(f"Error executing script: {e}")
         print("\nMake sure you have Playwright installed and the browsers downloaded:")
