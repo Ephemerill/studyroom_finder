@@ -41,8 +41,8 @@ function App() {
   return (
     <div className="container">
       <header>
-        <h1>Biola Study Rooms</h1>
-        <p>Find your next focus space effortlessly.</p>
+        <h1>Study Room finder</h1>
+        <p>Time to kick someone out :)</p>
       </header>
 
       {status === 'idle' && (
