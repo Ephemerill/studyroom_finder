@@ -1,11 +1,24 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import './index.css'
+
+const parseTime = (timeStr) => {
+  if (!timeStr) return Infinity;
+  const match = timeStr.match(/(\d+):(\d+)(am|pm)/i);
+  if (!match) return Infinity;
+  let [_, h, m, ampm] = match;
+  h = parseInt(h);
+  m = parseInt(m);
+  if (ampm.toLowerCase() === 'pm' && h !== 12) h += 12;
+  if (ampm.toLowerCase() === 'am' && h === 12) h = 0;
+  return h * 60 + m;
+};
 
 function App() {
   const [status, setStatus] = useState('idle') // idle, scraping, done
   const [progress, setProgress] = useState(0)
   const [statusMessage, setStatusMessage] = useState('')
   const [rooms, setRooms] = useState([])
+  const [sortBy, setSortBy] = useState('none') // none, lower, upper, time
 
   const startScraping = () => {
     setStatus('scraping')
@@ -13,8 +26,10 @@ function App() {
     setStatusMessage('Initializing scraper...')
     setRooms([])
 
-    // Connect to SSE stream via relative path so Nginx can proxy it
-    const eventSource = new EventSource('/api/scrape')
+    // Connect to SSE stream via relative path so Nginx can proxy it 
+    // In dev mode, use the explicit localhost address
+    const apiUrl = import.meta.env.DEV ? 'http://127.0.0.1:5000/api/scrape' : '/api/scrape';
+    const eventSource = new EventSource(apiUrl)
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data)
@@ -37,6 +52,43 @@ function App() {
       setTimeout(() => setStatus('idle'), 3000)
     }
   }
+
+  const sortedRooms = useMemo(() => {
+    let sorted = [...rooms];
+    if (sortBy === 'lower') {
+      sorted.sort((a, b) => {
+        const aL = a.location.toLowerCase().includes('lower');
+        const bL = b.location.toLowerCase().includes('lower');
+        return aL === bL ? 0 : aL ? -1 : 1;
+      });
+    } else if (sortBy === 'upper') {
+      sorted.sort((a, b) => {
+        const aU = a.location.toLowerCase().includes('upper');
+        const bU = b.location.toLowerCase().includes('upper');
+        return aU === bU ? 0 : aU ? -1 : 1;
+      });
+    } else if (sortBy === 'time') {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      
+      const getClosestTimeDiff = (times) => {
+        if (!times || times.length === 0) return Infinity; // Fully booked
+        let minDiff = Infinity;
+        times.forEach((t) => {
+          const tMin = parseTime(t);
+          if (tMin !== Infinity) {
+            // Find absolute difference between now and the available slot
+            const diff = Math.abs(tMin - currentMinutes);
+            if (diff < minDiff) minDiff = diff;
+          }
+        });
+        return minDiff;
+      };
+      
+      sorted.sort((a, b) => getClosestTimeDiff(a.available_times) - getClosestTimeDiff(b.available_times));
+    }
+    return sorted;
+  }, [rooms, sortBy]);
 
   return (
     <div className="container">
@@ -67,8 +119,17 @@ function App() {
 
       {status === 'done' && (
         <>
+          <div className="controls-bar" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem', gap: '1rem', alignItems: 'center' }}>
+            <label htmlFor="sortOpt" style={{ color: 'var(--text-muted)'}}>Sort By:</label>
+            <select id="sortOpt" className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="none">Default</option>
+              <option value="lower">Lower Level First</option>
+              <option value="upper">Upper Level First</option>
+              <option value="time">Closest Open Time</option>
+            </select>
+          </div>
           <div className="results-grid">
-            {rooms.map((room, idx) => (
+            {sortedRooms.map((room, idx) => (
               <div className="glass-panel room-card" key={idx}>
                 <div className="room-header">
                   <h3 className="room-title">{room.name}</h3>
