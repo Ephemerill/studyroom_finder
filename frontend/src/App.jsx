@@ -41,6 +41,11 @@ function App() {
         setRooms(data.data)
         setStatus('done')
         eventSource.close()
+      } else if (data.status === 'error') {
+        // Surface a scrape failure instead of silently showing every room as booked
+        setStatusMessage(data.message || 'The scraper could not read LibCal.')
+        eventSource.close()
+        setTimeout(() => setStatus('idle'), 4000)
       }
     }
 
