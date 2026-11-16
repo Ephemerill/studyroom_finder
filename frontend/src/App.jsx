@@ -1,4 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import '@fontsource/big-shoulders-display/800'
+import '@fontsource/big-shoulders-display/900'
+import '@fontsource/hanken-grotesk/400'
+import '@fontsource/hanken-grotesk/600'
+import '@fontsource/hanken-grotesk/700'
 import './index.css'
 
 const SLOT_MINUTES = 30
@@ -124,7 +129,7 @@ const roomStatus = (room, now) => {
       kind: 'later',
       label: 'Opens',
       at: room.nextOpen.start,
-      note: `free for ${durationLabel(room.nextOpen.end - room.nextOpen.start)}`,
+      note: `until ${clockLabel(room.nextOpen.end)}`,
     }
   }
   return { kind: 'booked', label: 'Booked', at: null, note: 'nothing left today' }
@@ -184,12 +189,15 @@ function Slip({ room, board, index }) {
         target="_blank"
         rel="noreferrer"
         data-status={status.kind}
-        style={{ '--i': Math.min(index, 12) }}
+        style={{ '--i': Math.min(index, 8) }}
         aria-label={`${room.code}, ${room.level}${room.capacity ? `, ${room.capacity} people` : ''}. ${spoken}. Book on LibCal.`}
       >
         <span className="slip__head">
           <span className="slip__code">{room.code}</span>
           <LevelTag level={room.level} />
+          <svg className="slip__go" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M5 11 11 5M6 5h5v5" />
+          </svg>
         </span>
         <span className="slip__meta">
           {meta.map((part) => (
@@ -248,6 +256,12 @@ function Toolbar({ levels, level, setLevel, order, setOrder, board }) {
 function Board({ board }) {
   const [level, setLevel] = useState('all')
   const [order, setOrder] = useState('open')
+  // Stamps press on once per check; filtering and sorting afterwards never replay them.
+  const [fresh, setFresh] = useState(true)
+  useEffect(() => {
+    const timer = setTimeout(() => setFresh(false), 900)
+    return () => clearTimeout(timer)
+  }, [])
 
   const levels = useMemo(() => [...new Set(board.rooms.map((room) => room.level))].sort(), [board.rooms])
 
@@ -260,8 +274,7 @@ function Board({ board }) {
     <>
       <Toolbar levels={levels} level={level} setLevel={setLevel} order={order} setOrder={setOrder} board={board} />
       {rooms.length > 0 ? (
-        // Re-keying on the filter replays the stamps for the rooms now in view.
-        <ol className="slips" key={`${level}-${order}`}>
+        <ol className="slips" data-fresh={fresh || undefined}>
           {rooms.map((room, index) => (
             <Slip key={room.id} room={room} board={board} index={index} />
           ))}
@@ -286,7 +299,7 @@ function Example() {
     {
       code: 'L103',
       level: 'Lower Level',
-      status: { kind: 'later', label: 'Opens', at: 15 * 60, note: 'free for 9h' },
+      status: { kind: 'later', label: 'Opens', at: 15 * 60, note: 'until 12:00am' },
       blocks: [{ start: 900, end: 1440 }],
     },
   ]
@@ -409,11 +422,17 @@ export default function App() {
           <div className="masthead__bar">
             <span className="brand">Study Rooms</span>
             {phase === 'done' ? (
-              <button type="button" className="refresh" onClick={check}>
+              <button
+                type="button"
+                className="refresh"
+                onClick={check}
+                aria-label={`Check again, last checked ${clockLabel(state.board.now)}`}
+              >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" />
                 </svg>
-                Checked {clockLabel(state.board.now)}
+                Check again
+                <span className="refresh__time">{clockLabel(state.board.now)}</span>
               </button>
             ) : (
               <span className="masthead__where">Biola Library · La Mirada</span>

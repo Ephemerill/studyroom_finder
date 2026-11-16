@@ -104,6 +104,7 @@ ul {
 }
 
 .brand {
+  white-space: nowrap;
   font-family: var(--display);
   font-weight: 800;
   font-size: 1.375rem;
@@ -120,8 +121,8 @@ ul {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 36px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--slip-edge);
   border-radius: 999px;
   background: transparent;
@@ -129,6 +130,7 @@ ul {
   font-size: 0.875rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   transition: color 160ms, border-color 160ms;
 }
 
@@ -140,6 +142,13 @@ ul {
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.refresh__time {
+  padding-left: 8px;
+  border-left: 1px solid var(--slip-edge);
+  color: var(--meta);
+  font-weight: 400;
 }
 
 .refresh:hover {
@@ -174,8 +183,8 @@ ul {
 .answer__count {
   font-family: var(--display);
   font-weight: 900;
-  font-size: 7.5rem;
-  line-height: 0.76;
+  font-size: 6rem;
+  line-height: 0.78;
   letter-spacing: -0.02em;
   color: var(--red);
   font-variant-numeric: tabular-nums;
@@ -185,7 +194,7 @@ ul {
   padding-bottom: 2px;
   font-family: var(--display);
   font-weight: 800;
-  font-size: 2.25rem;
+  font-size: 2rem;
   line-height: 0.9;
   text-transform: uppercase;
 }
@@ -260,7 +269,7 @@ ul {
 }
 
 .segmented button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 9px;
@@ -293,7 +302,7 @@ ul {
 
 .sort select {
   appearance: none;
-  min-height: 42px;
+  min-height: 52px;
   padding: 0 34px 0 12px;
   border: 1px solid var(--slip-edge);
   border-radius: 12px;
@@ -348,7 +357,7 @@ ul {
 .slip {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     'head stamp'
     'meta stamp'
@@ -393,6 +402,7 @@ a.slip:active {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .slip__code {
@@ -401,6 +411,23 @@ a.slip:active {
   font-size: 2.125rem;
   line-height: 1;
   letter-spacing: 0.01em;
+}
+
+.slip__go {
+  width: 16px;
+  height: 16px;
+  margin-left: -2px;
+  fill: none;
+  stroke: var(--meta);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 160ms, transform 160ms var(--ease-out);
+}
+
+a.slip:hover .slip__go {
+  stroke: var(--paper);
+  transform: translate(1px, -1px);
 }
 
 .slip[data-status='booked'] .slip__code {
@@ -531,6 +558,16 @@ a.slip:active {
   background-size: calc(100% / var(--slots)) 100%;
 }
 
+.timeline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: var(--slip-edge);
+}
+
 .timeline__open {
   position: absolute;
   top: 0;
@@ -561,11 +598,8 @@ a.slip:active {
 
 @keyframes press {
   from {
-    opacity: 0;
-    transform: scale(1.5) rotate(-6deg);
-  }
-  55% {
-    opacity: 1;
+    opacity: 0.4;
+    transform: scale(1.15) rotate(-4deg);
   }
   to {
     opacity: 1;
@@ -573,9 +607,9 @@ a.slip:active {
   }
 }
 
-.slips:not(.slips--example) .stamp {
-  animation: press 460ms var(--ease-out) both;
-  animation-delay: calc(var(--i, 0) * 45ms + 80ms);
+.slips[data-fresh] .stamp {
+  animation: press 300ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 25ms);
 }
 
 /* Start screen ---------------------------------------------------------- */
@@ -717,12 +751,8 @@ a.slip:active {
     font-size: 4.5rem;
   }
 
-  .answer__count {
-    font-size: 9.5rem;
-  }
-
   .answer__words {
-    font-size: 2.75rem;
+    font-size: 2.25rem;
   }
 
   .slip {
@@ -770,6 +800,12 @@ a.slip:active {
   }
 
   .ruler__tick--minor {
+    display: none;
+  }
+
+  /* The narrowest phones keep the action and drop the extras; the time stays in the button's name. */
+  .refresh__time,
+  .slip__go {
     display: none;
   }
 }
