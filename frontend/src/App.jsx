@@ -8,15 +8,25 @@ const toMinutes = (clock) => {
   return hour * 60 + minute
 }
 
-const clockLabel = (minutes) => {
-  const wrapped = ((minutes % 1440) + 1440) % 1440
+const wrap = (minutes) => ((minutes % 1440) + 1440) % 1440
+
+/** 990 -> { time: '4:30', period: 'pm' } */
+const clockParts = (minutes) => {
+  const wrapped = wrap(minutes)
   const hour = Math.floor(wrapped / 60)
-  const minute = wrapped % 60
-  return `${hour % 12 || 12}:${String(minute).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'}`
+  return {
+    time: `${hour % 12 || 12}:${String(wrapped % 60).padStart(2, '0')}`,
+    period: hour < 12 ? 'am' : 'pm',
+  }
+}
+
+const clockLabel = (minutes) => {
+  const { time, period } = clockParts(minutes)
+  return `${time}${period}`
 }
 
 const hourLabel = (minutes) => {
-  const hour = Math.floor((((minutes % 1440) + 1440) % 1440) / 60)
+  const hour = Math.floor(wrap(minutes) / 60)
   return `${hour % 12 || 12}${hour < 12 ? 'am' : 'pm'}`
 }
 
@@ -33,6 +43,10 @@ const scrapeMinutes = (timestamp, fallback) => {
   const match = /T(\d{2}):(\d{2})/.exec(timestamp || '')
   return match ? Number(match[1]) * 60 + Number(match[2]) : fallback
 }
+
+/** "Upper Level" -> "Upper" */
+const levelName = (level) => level.replace(/\s*level$/i, '')
+const levelKind = (level) => (/upper/i.test(level) ? 'upper' : /lower/i.test(level) ? 'lower' : 'other')
 
 /** Collapse a room's open half-hour slots into contiguous blocks. */
 const openBlocks = (slots) => {
@@ -64,14 +78,15 @@ const buildBoard = (payload) => {
 }
 
 /**
- * Hour ticks across the board, thinned out when the day still has a long way to
- * run, and clear of the "now" marker that always sits at the left edge.
+ * Hour ticks across the ruler, thinned out when the day still has a long way to
+ * run, and clear of the "now" label that always sits at the left edge.
  */
 const rulerTicks = (start, end, now) => {
-  const step = end - start > 10 * 60 ? 120 : 60
+  const step = end - start > 8 * 60 ? 120 : 60
   const ticks = []
   for (let minute = Math.ceil(start / step) * step; minute <= end; minute += step) {
-    if (Math.abs(minute - now) > 35) ticks.push(minute)
+    // Keep clear of the "now" label pinned at the left edge.
+    if ((minute - now) / (end - start) > 0.13) ticks.push(minute)
   }
   return ticks
 }
@@ -100,57 +115,133 @@ const compare = {
   room: (a, b) => a.code.localeCompare(b.code),
 }
 
-function Strip({ room, board }) {
-  const span = board.end - board.start
-  const offset = (minute) => ((minute - board.start) / span) * 100
+const roomStatus = (room, now) => {
+  if (room.openNow) {
+    return { kind: 'free', label: 'Free till', at: room.openNow.end, note: `${durationLabel(room.openNow.end - now)} left` }
+  }
+  if (room.nextOpen) {
+    return {
+      kind: 'later',
+      label: 'Opens',
+      at: room.nextOpen.start,
+      note: `free for ${durationLabel(room.nextOpen.end - room.nextOpen.start)}`,
+    }
+  }
+  return { kind: 'booked', label: 'Booked', at: null, note: 'nothing left today' }
+}
 
+function Stamp({ status }) {
+  if (status.at === null) {
+    return (
+      <span className="stamp stamp--booked">
+        <span className="stamp__word">{status.label}</span>
+      </span>
+    )
+  }
+  const { time, period } = clockParts(status.at)
   return (
-    <div className="strip" aria-hidden="true">
-      {room.blocks.map((block) => (
-        <span
-          key={block.start}
-          className="strip__open"
-          style={{ left: `${offset(block.start)}%`, width: `${offset(block.end) - offset(block.start)}%` }}
-        />
-      ))}
-      <span className="strip__now" style={{ left: `${offset(board.now)}%` }} />
-    </div>
+    <span className={`stamp stamp--${status.kind}`}>
+      <span className="stamp__label">{status.label}</span>
+      <span className="stamp__time">
+        {time}
+        <span className="stamp__period">{period}</span>
+      </span>
+    </span>
   )
 }
 
-function Row({ room, board, index }) {
-  const status = room.openNow
-    ? { headline: 'Open now', detail: `${durationLabel(room.openNow.end - board.now)} left` }
-    : room.nextOpen
-      ? { headline: `Opens ${clockLabel(room.nextOpen.start)}`, detail: durationLabel(room.nextOpen.end - room.nextOpen.start) }
-      : { headline: 'Booked', detail: 'nothing left today' }
+function Timeline({ blocks, start, end, now }) {
+  const span = end - start
+  const offset = (minute) => ((Math.min(Math.max(minute, start), end) - start) / span) * 100
+  return (
+    <span className="timeline" style={{ '--slots': Math.max(1, Math.round(span / SLOT_MINUTES)) }} aria-hidden="true">
+      {blocks.map((block) => (
+        <span
+          key={block.start}
+          className="timeline__open"
+          style={{ left: `${offset(block.start)}%`, width: `${offset(block.end) - offset(block.start)}%` }}
+        />
+      ))}
+      <span className="timeline__now" style={{ left: `${offset(now)}%` }} />
+    </span>
+  )
+}
+
+function LevelTag({ level }) {
+  return <span className={`tag tag--${levelKind(level)}`}>{levelName(level)}</span>
+}
+
+function Slip({ room, board, index }) {
+  const status = roomStatus(room, board.now)
+  const meta = [status.note, room.capacity && `${room.capacity.replace('-', '–')} people`, room.presentation && 'presentation screen'].filter(Boolean)
+  const spoken = status.at === null ? 'Booked for the rest of today' : `${status.label} ${clockLabel(status.at)}, ${status.note}`
 
   return (
-    <a
-      className="row"
-      href={room.url}
-      target="_blank"
-      rel="noreferrer"
-      style={{ '--row-index': index }}
-      data-open={room.openNow ? 'true' : 'false'}
-      aria-label={`${room.code}, ${room.level}${room.capacity ? `, ${room.capacity} people` : ''}. ${status.headline}, ${status.detail}. Book on LibCal.`}
-    >
-      <span className="row__id">
-        <span className="row__code">{room.code}</span>
-        {/* LibCal only lists a capacity for some rooms; the rest leave it out. */}
-        {(room.capacity || room.presentation) && (
-          <span className="row__meta">
-            {room.capacity && `${room.capacity.replace('-', '–')} people`}
-            {room.presentation && <span className="row__tag">presentation</span>}
+    <li>
+      <a
+        className="slip"
+        href={room.url}
+        target="_blank"
+        rel="noreferrer"
+        data-status={status.kind}
+        style={{ '--i': Math.min(index, 12) }}
+        aria-label={`${room.code}, ${room.level}${room.capacity ? `, ${room.capacity} people` : ''}. ${spoken}. Book on LibCal.`}
+      >
+        <span className="slip__head">
+          <span className="slip__code">{room.code}</span>
+          <LevelTag level={room.level} />
+        </span>
+        <span className="slip__meta">
+          {meta.map((part) => (
+            <span key={part}>{part}</span>
+          ))}
+        </span>
+        <Stamp status={status} />
+        <Timeline blocks={room.blocks} start={board.start} end={board.end} now={board.now} />
+      </a>
+    </li>
+  )
+}
+
+function Toolbar({ levels, level, setLevel, order, setOrder, board }) {
+  const span = board.end - board.start
+  const at = (minute) => ((minute - board.start) / span) * 100
+
+  return (
+    <div className="toolbar">
+      <div className="toolbar__controls">
+        <div className="segmented" role="group" aria-label="Filter by level">
+          <button type="button" aria-pressed={level === 'all'} onClick={() => setLevel('all')}>
+            All
+          </button>
+          {levels.map((name) => (
+            <button key={name} type="button" aria-pressed={level === name} onClick={() => setLevel(name)}>
+              {levelName(name)}
+            </button>
+          ))}
+        </div>
+        <label className="sort">
+          <span className="sort__label">Sort</span>
+          <select value={order} onChange={(event) => setOrder(event.target.value)}>
+            <option value="open">Open longest</option>
+            <option value="room">Room number</option>
+          </select>
+        </label>
+      </div>
+      <div className="ruler" aria-hidden="true">
+        <span className="ruler__now">now</span>
+        {rulerTicks(board.start, board.end, board.now).map((minute, index) => (
+          <span
+            key={minute}
+            // Every other label drops out on the narrowest phones, where they would collide.
+            className={`ruler__tick${index % 2 ? ' ruler__tick--minor' : ''}`}
+            style={{ left: `${at(minute)}%`, transform: `translateX(${at(minute) > 90 ? '-100%' : '-50%'})` }}
+          >
+            {hourLabel(minute)}
           </span>
-        )}
-      </span>
-      <Strip room={room} board={board} />
-      <span className="row__status">
-        <span className="row__headline">{status.headline}</span>
-        <span className="row__detail">{status.detail}</span>
-      </span>
-    </a>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -158,89 +249,124 @@ function Board({ board }) {
   const [level, setLevel] = useState('all')
   const [order, setOrder] = useState('open')
 
-  const levels = useMemo(
-    () => [...new Set(board.rooms.map((room) => room.level))].sort(),
-    [board.rooms],
-  )
+  const levels = useMemo(() => [...new Set(board.rooms.map((room) => room.level))].sort(), [board.rooms])
 
   const rooms = useMemo(
-    () =>
-      board.rooms
-        .filter((room) => level === 'all' || room.level === level)
-        .sort(compare[order]),
+    () => board.rooms.filter((room) => level === 'all' || room.level === level).sort(compare[order]),
     [board.rooms, level, order],
   )
 
+  return (
+    <>
+      <Toolbar levels={levels} level={level} setLevel={setLevel} order={order} setOrder={setOrder} board={board} />
+      {rooms.length > 0 ? (
+        // Re-keying on the filter replays the stamps for the rooms now in view.
+        <ol className="slips" key={`${level}-${order}`}>
+          {rooms.map((room, index) => (
+            <Slip key={room.id} room={room} board={board} index={index} />
+          ))}
+        </ol>
+      ) : (
+        <p className="slips__empty">No rooms listed on that level today.</p>
+      )}
+    </>
+  )
+}
+
+/** Two illustrative slips on the start screen that teach how a stamp reads. */
+function Example() {
+  const board = { start: 12 * 60 + 30, end: 24 * 60, now: 12 * 60 + 32 }
+  const examples = [
+    {
+      code: 'U112',
+      level: 'Upper Level',
+      status: { kind: 'free', label: 'Free till', at: 16 * 60, note: '3h 28m left' },
+      blocks: [{ start: 750, end: 960 }, { start: 1080, end: 1410 }],
+    },
+    {
+      code: 'L103',
+      level: 'Lower Level',
+      status: { kind: 'later', label: 'Opens', at: 15 * 60, note: 'free for 9h' },
+      blocks: [{ start: 900, end: 1440 }],
+    },
+  ]
+
+  return (
+    <figure className="example">
+      <figcaption className="example__caption">
+        <span className="example__title">How to read a slip</span>
+        <span className="example__note">Example rooms, not live data</span>
+      </figcaption>
+      <ul className="slips slips--example" aria-hidden="true">
+        {examples.map((room) => (
+          <li key={room.code}>
+            <span className="slip" data-status={room.status.kind}>
+              <span className="slip__head">
+                <span className="slip__code">{room.code}</span>
+                <LevelTag level={room.level} />
+              </span>
+              <span className="slip__meta">
+                <span>{room.status.note}</span>
+              </span>
+              <Stamp status={room.status} />
+              <Timeline blocks={room.blocks} start={board.start} end={board.end} now={board.now} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      <ul className="example__key">
+        <li>
+          <span className="key-swatch key-swatch--free" />A red stamp means you can walk in now.
+        </li>
+        <li>
+          <span className="key-swatch key-swatch--later" />A grey stamp is the next time it opens.
+        </li>
+        <li>
+          <span className="key-swatch key-swatch--line" />The line is the rest of today. Solid is open.
+        </li>
+      </ul>
+    </figure>
+  )
+}
+
+function Waiting() {
+  return (
+    <ol className="slips slips--waiting" aria-hidden="true">
+      {[0, 1, 2, 3, 4].map((n) => (
+        <li key={n}>
+          <span className="slip slip--blank" style={{ '--i': n }}>
+            <span className="slip__head">
+              <span className="blank blank--code" />
+            </span>
+            <span className="blank blank--meta" />
+            <span className="blank blank--stamp" />
+            <span className="timeline" style={{ '--slots': 23 }} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function Answer({ board }) {
   const { openNow, next } = summarise(board.rooms)
-  const ticks = rulerTicks(board.start, board.end, board.now)
-  const span = board.end - board.start
+  const nextLine = next
+    ? `${next.count} ${openNow > 0 ? 'more' : next.count === 1 ? 'room' : 'rooms'} ${next.count === 1 ? 'opens' : 'open'} at ${clockLabel(next.at)}`
+    : openNow > 0
+      ? 'Nothing else opens later today'
+      : 'Every room is booked for the rest of today'
 
   return (
     <>
-      <div className="summary">
-        <p className="summary__count">
-          {openNow > 0 ? (
-            <>
-              <strong>{openNow}</strong> {openNow === 1 ? 'room' : 'rooms'} free right now
-            </>
-          ) : (
-            <strong>Nothing free right now</strong>
-          )}
-          {next && (
-            <span className="summary__next">
-              {openNow > 0 ? `${next.count} more` : `${next.count} ${next.count === 1 ? 'room' : 'rooms'}`} from{' '}
-              {clockLabel(next.at)}
-            </span>
-          )}
-        </p>
-        <div className="filters">
-          <div className="chips" role="group" aria-label="Filter by level">
-            <button className="chip" aria-pressed={level === 'all'} onClick={() => setLevel('all')}>
-              All
-            </button>
-            {levels.map((name) => (
-              <button key={name} className="chip" aria-pressed={level === name} onClick={() => setLevel(name)}>
-                {name.replace(/\s*level$/i, '')}
-              </button>
-            ))}
-          </div>
-          <label className="sort">
-            Sort
-            <select value={order} onChange={(event) => setOrder(event.target.value)}>
-              <option value="open">Open longest</option>
-              <option value="room">Room number</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div className="board">
-        <div className="ruler" aria-hidden="true">
-          {ticks.map((minute) => {
-            const at = ((minute - board.start) / span) * 100
-            return (
-              <span
-                key={minute}
-                // Odd hours drop out on narrow screens, where labels would collide.
-                className={`ruler__tick${Math.floor(minute / 60) % 2 ? ' ruler__tick--minor' : ''}`}
-                // Ticks near the right end hug the edge so their label is not clipped.
-                style={{ left: `${at}%`, transform: `translateX(${at > 92 ? '-100%' : '-50%'})` }}
-              >
-                {hourLabel(minute)}
-              </span>
-            )
-          })}
-          <span className="ruler__now" style={{ left: `${((board.now - board.start) / span) * 100}%` }}>
-            now
-          </span>
-        </div>
-
-        {rooms.map((room, index) => (
-          <Row key={room.id} room={room} board={board} index={index} />
-        ))}
-
-        {rooms.length === 0 && <p className="board__empty">No rooms on that level.</p>}
-      </div>
+      <h1 className="answer">
+        <span className="answer__count">{openNow}</span>
+        <span className="answer__words">
+          {openNow === 1 ? 'room' : 'rooms'}
+          <br />
+          free now
+        </span>
+      </h1>
+      <p className="masthead__sub">{nextLine}</p>
     </>
   )
 }
@@ -249,12 +375,10 @@ export default function App() {
   const [state, setState] = useState({ phase: 'idle' })
 
   const check = () => {
-    setState({ phase: 'checking', progress: 0, message: 'Opening LibCal' })
+    setState({ phase: 'checking', progress: 4, message: 'Opening LibCal' })
 
     // Relative path in production so Nginx can proxy the stream.
-    const source = new EventSource(
-      import.meta.env.DEV ? 'http://127.0.0.1:5000/api/scrape' : '/api/scrape',
-    )
+    const source = new EventSource(import.meta.env.DEV ? 'http://127.0.0.1:5000/api/scrape' : '/api/scrape')
 
     source.onmessage = (event) => {
       const step = JSON.parse(event.data)
@@ -271,68 +395,74 @@ export default function App() {
     }
 
     source.onerror = () => {
-      setState({ phase: 'error', message: "Couldn't reach the room checker." })
+      setState({ phase: 'error', message: 'The room checker didn’t answer. Check your connection and try again.' })
       source.close()
     }
   }
 
+  const { phase } = state
+
   return (
-    <div className="page">
+    <div className="app" data-phase={phase}>
       <header className="masthead">
-        <h1>Study rooms</h1>
-        <p className="masthead__where">Biola Library, La Mirada</p>
-        <p className="masthead__aside">Time to kick someone out :)</p>
+        <div className="masthead__inner">
+          <div className="masthead__bar">
+            <span className="brand">Study Rooms</span>
+            {phase === 'done' ? (
+              <button type="button" className="refresh" onClick={check}>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" />
+                </svg>
+                Checked {clockLabel(state.board.now)}
+              </button>
+            ) : (
+              <span className="masthead__where">Biola Library · La Mirada</span>
+            )}
+          </div>
+
+          {phase === 'idle' && (
+            <>
+              <h1 className="question">Which study rooms are free right now?</h1>
+              <p className="masthead__sub">Every room in the library, for the rest of today.</p>
+              <button type="button" className="action" onClick={check}>
+                Check rooms
+              </button>
+            </>
+          )}
+
+          {phase === 'checking' && (
+            <div role="status">
+              <h1 className="question">Checking rooms…</h1>
+              <p className="masthead__sub">{state.message}</p>
+              <div className="meter">
+                <span className="meter__fill" style={{ width: `${state.progress}%` }} />
+              </div>
+            </div>
+          )}
+
+          {phase === 'error' && (
+            <div role="alert">
+              <h1 className="question">Couldn’t check the rooms.</h1>
+              <p className="masthead__sub">{state.message}</p>
+              <button type="button" className="action" onClick={check}>
+                Try again
+              </button>
+            </div>
+          )}
+
+          {phase === 'done' && <Answer board={state.board} />}
+        </div>
       </header>
 
-      {state.phase === 'idle' && (
-        <div className="lede">
-          <p>Every room in the library, every half hour left in today.</p>
-          <p className="legend">
-            <span className="legend__item">
-              <span className="legend__swatch legend__swatch--free" />free
-            </span>
-            <span className="legend__item">
-              <span className="legend__swatch legend__swatch--booked" />booked
-            </span>
-            <span className="legend__item">
-              <span className="legend__swatch legend__swatch--now" />right now
-            </span>
-          </p>
-          <button className="action" onClick={check}>
-            Check availability
-          </button>
-        </div>
-      )}
+      <main className="sheet">
+        {phase === 'idle' && <Example />}
+        {phase === 'checking' && <Waiting />}
+        {phase === 'done' && <Board board={state.board} />}
+      </main>
 
-      {state.phase === 'checking' && (
-        <div className="lede" role="status">
-          <p className="lede__progress">{state.message}</p>
-          <div className="meter">
-            <span className="meter__fill" style={{ width: `${state.progress}%` }} />
-          </div>
-        </div>
-      )}
-
-      {state.phase === 'error' && (
-        <div className="lede" role="alert">
-          <p>{state.message}</p>
-          <button className="action" onClick={check}>
-            Try again
-          </button>
-        </div>
-      )}
-
-      {state.phase === 'done' && (
-        <>
-          <Board board={state.board} />
-          <footer className="footer">
-            <button className="action action--quiet" onClick={check}>
-              Check again
-            </button>
-            <p className="footer__stamp">Checked at {clockLabel(state.board.now)}</p>
-          </footer>
-        </>
-      )}
+      <footer className="colophon">
+        Unofficial student tool, not affiliated with Biola University. Tap a room to book it on LibCal.
+      </footer>
     </div>
   )
 }
