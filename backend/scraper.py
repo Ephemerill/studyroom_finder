@@ -10,8 +10,14 @@ from, which is one request for every room instead of one page load per room.
 import re
 import sys
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
+
+# LibCal schedules La Mirada rooms in Pacific time. Every "today" and "now" is
+# read in this zone, never the host's: a server on UTC is already on tomorrow by
+# 4pm Pacific and would otherwise ask LibCal for the wrong day.
+CAMPUS_TZ = ZoneInfo("America/Los_Angeles")
 
 # LibCal group holding the "Library Study Rooms" spaces.
 GROUP_ID = 15188
@@ -56,6 +62,9 @@ def _describe_room(name, location, href):
     match = ROOM_NAME_RE.match(name)
     # location reads "Library Study Rooms | Lower Level"; the level is the tail.
     level = location.split("|")[-1].strip() if "|" in location else location
+    # Newer listings prefix the campus ("La Mirada - Lower Level"); every room
+    # here is La Mirada, so keep just the level.
+    level = re.sub(r"^\s*La Mirada\s*[-–]\s*", "", level, flags=re.IGNORECASE)
     return {
         "id": int(re.search(r"/space/(\d+)", href).group(1)),
         "code": match.group("code") if match else name,
@@ -87,7 +96,7 @@ def _fetch_availability_via_api(page, context, eid):
 
     # LibCal trims the response to slots that are still bookable, so the window
     # it returns is "now through closing" and past times never come back.
-    today = datetime.now()
+    today = datetime.now(CAMPUS_TZ)
     response = context.request.post(
         "https://biola.libcal.com/spaces/availability/grid",
         form={
@@ -110,7 +119,13 @@ def _fetch_availability_via_api(page, context, eid):
     if not response.ok:
         raise RuntimeError(f"availability grid returned HTTP {response.status}")
 
-    slots = response.json().get("slots") or []
+    # Slots are keyed by time of day below, so a stray slot from another date
+    # would land on today's board. Keep only today's.
+    date_prefix = today.strftime("%Y-%m-%d")
+    slots = [
+        slot for slot in response.json().get("slots") or []
+        if str(slot.get("start", "")).startswith(date_prefix)
+    ]
     if not slots:
         raise RuntimeError("availability grid returned no slots")
 
@@ -209,7 +224,10 @@ def stream_study_rooms(base_url="https://biola.libcal.com/reserve/studyroom"):
         browser = p.chromium.launch(headless=True)
         # A standard user agent avoids tripping LibCal's bot protection.
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            # The DOM fallback reads times off LibCal's calendar, which draws in
+            # the browser's zone; keep it on campus time like everything else.
+            timezone_id="America/Los_Angeles",
         )
         page = context.new_page()
 
@@ -275,7 +293,7 @@ def stream_study_rooms(base_url="https://biola.libcal.com/reserve/studyroom"):
         "progress": 100,
         "data": rooms,
         "window": {"start": _to_clock(window[0]), "end": _to_clock(window[1])},
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": datetime.now(CAMPUS_TZ).isoformat(timespec="seconds"),
     }
 
 

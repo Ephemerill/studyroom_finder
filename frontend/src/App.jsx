@@ -133,14 +133,17 @@ function Row({ room, board, index }) {
       rel="noreferrer"
       style={{ '--row-index': index }}
       data-open={room.openNow ? 'true' : 'false'}
-      aria-label={`${room.code}, ${room.level}, ${room.capacity} people. ${status.headline}, ${status.detail}. Book on LibCal.`}
+      aria-label={`${room.code}, ${room.level}${room.capacity ? `, ${room.capacity} people` : ''}. ${status.headline}, ${status.detail}. Book on LibCal.`}
     >
       <span className="row__id">
         <span className="row__code">{room.code}</span>
-        <span className="row__meta">
-          {room.capacity.replace('-', '–')} people
-          {room.presentation && <span className="row__tag">presentation</span>}
-        </span>
+        {/* LibCal only lists a capacity for some rooms; the rest leave it out. */}
+        {(room.capacity || room.presentation) && (
+          <span className="row__meta">
+            {room.capacity && `${room.capacity.replace('-', '–')} people`}
+            {room.presentation && <span className="row__tag">presentation</span>}
+          </span>
+        )}
       </span>
       <Strip room={room} board={board} />
       <span className="row__status">
